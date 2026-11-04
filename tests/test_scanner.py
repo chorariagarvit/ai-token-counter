@@ -125,3 +125,12 @@ def test_text_counters(tmp_path):
 def test_default_is_chars_over_two():
     assert Tokenizer().count("abcde") == 3  # ceil(5/2)
     assert Tokenizer().count("") == 0
+
+
+def test_output_estimates():
+    from tokencounter.cli import _output_range
+
+    assert _output_range(1000, "rewrite") == (900, 1100, 1500)
+    assert _output_range(1000, "summarize") == (50, 120, 250)
+    assert _output_range(1000, "classify") == (5, 30, 100)
+    assert _output_range(1000, "0.4") == (400, 400, 400)

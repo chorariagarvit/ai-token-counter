@@ -9,7 +9,32 @@ from .scanner import FileResult, scan_path
 from .tokenizer import DEFAULT_ENCODING, Tokenizer
 
 
-def _report_text(text: str, tok: Tokenizer, as_json: bool = False) -> int:
+# (low, typical, high) output size as a multiple of the input text tokens. Heuristics, not measurements.
+OUTPUT_TASKS = {
+    "summarize": (0.05, 0.12, 0.25),
+    "review": (0.10, 0.25, 0.60),  # explain / analyze / code review
+    "rewrite": (0.90, 1.10, 1.50),  # translate / convert / refactor, returning the whole content
+}
+CLASSIFY_FIXED = (5, 30, 100)  # classify / extract a few fields: size is independent of the input
+
+
+def _output_range(base: int, task: str) -> tuple[int, int, int]:
+    if task == "classify":
+        return CLASSIFY_FIXED
+    try:
+        ratios = (float(task),) * 3  # custom multiple, e.g. --output 0.4
+    except ValueError:
+        ratios = OUTPUT_TASKS[task]
+    return tuple(round(base * r) for r in ratios)
+
+
+def _print_output(base: int, task: str) -> None:
+    lo, typ, hi = _output_range(base, task)
+    print(f"Output estimate ({task}): ~{typ:,} tokens (range {lo:,} - {hi:,})")
+    print("  Heuristic from task type, not a prediction; thinking/tool-call tokens would add to it.")
+
+
+def _report_text(text: str, tok: Tokenizer, as_json: bool = False, output: str | None = None) -> int:
     tokens = tok.count(text)
     lines, words, chars = (lambda c, w, l: (l, w, c))(*text_stats(text))
     if as_json:
@@ -19,6 +44,8 @@ def _report_text(text: str, tok: Tokenizer, as_json: bool = False) -> int:
     else:
         approx = "" if tok.exact else " (safe estimate)"
         print(f"Tokens: {tokens:,}{approx}   Words: {words:,}   Chars: {chars:,}   Lines: {lines:,}")
+        if output:
+            _print_output(tokens, output)
     return tokens
 
 
@@ -47,17 +74,26 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("-i", "--interactive", action="store_true", help="chat-style counter: paste text, Ctrl-D to count")
     p.add_argument("-e", "--encoding", default=DEFAULT_ENCODING, help=f"'{DEFAULT_ENCODING}' (default, conservative: 1 token per 2 chars) or a tiktoken encoding such as o200k_base")
     p.add_argument("-a", "--all", action="store_true", help="list every file, not just the top 20 by tokens")
+    p.add_argument(
+        "-o", "--output", metavar="TASK",
+        help="also estimate output tokens for a task on this input: classify, summarize, review, rewrite, or a number (multiple of input)",
+    )
     p.add_argument("--json", action="store_true", help="emit JSON")
     args = p.parse_args(argv)
 
+    if args.output and args.output != "classify" and args.output not in OUTPUT_TASKS:
+        try:
+            float(args.output)
+        except ValueError:
+            p.error(f"--output must be classify, {', '.join(OUTPUT_TASKS)} or a number")
     tok = Tokenizer(args.encoding)
     if args.interactive:
         return _interactive(tok)
     if args.text is not None:
-        _report_text(args.text, tok, args.json)
+        _report_text(args.text, tok, args.json, args.output)
         return 0
     if args.paths == ["-"]:
-        _report_text(sys.stdin.read(), tok, args.json)
+        _report_text(sys.stdin.read(), tok, args.json, args.output)
         return 0
     if not args.paths:
         p.error("give a path, -t TEXT, '-' for stdin, or -i for interactive mode")
@@ -75,6 +111,12 @@ def main(argv: list[str] | None = None) -> int:
                 "encoding": tok.encoding_name,
                 "exact": tok.exact,
                 "total_tokens": total,
+                **(
+                    {"output_estimate": dict(zip(("low", "typical", "high"), _output_range(
+                        sum(r.tokens for r in counted if r.kind in ("text", "document", "pdf")), args.output)),
+                        task=args.output)}
+                    if args.output else {}
+                ),
                 "files": [r.__dict__ for r in results],
             },
             sys.stdout,
@@ -106,6 +148,9 @@ def main(argv: list[str] | None = None) -> int:
         f"{sum(r.words for r in counted):,} words, {sum(r.chars for r in counted):,} chars"
     )
     print(f"Files counted: {len(counted)}  skipped: {len(skipped)}")
+    if args.output:
+        base = sum(r.tokens for r in counted if r.kind in ("text", "document", "pdf"))
+        _print_output(base, args.output)
     print(f"Total tokens:  {total:,}  ({tok.encoding_name}{'' if tok.exact else ', safe estimate'})")
     print("Note: estimates. Text assumes 1 token per 2 chars (conservative; use -e o200k_base for a GPT count); images/PDF pages use Claude's")
     print("      w*h/750 rule; audio/video use Gemini rates (32/s, 263/s) - Claude does not accept audio/video.")

@@ -25,6 +25,22 @@ downloads its vocabulary on first use, and if that fails the tool falls back to 
 ./tokencounter.sh -e o200k_base file.txt            # use a real tiktoken encoding instead of chars/2
 ```
 
+### Estimate output tokens
+
+Output tokens are counted with the same tokenizer as input, but their length depends on the task, so
+pass `-o TASK` to get an estimated range from the input size:
+
+```bash
+./tokencounter.sh -o summarize report.pdf     # ~5-25% of the input
+./tokencounter.sh -o review src/              # ~10-60%   (explain / analyze / code review)
+./tokencounter.sh -o rewrite doc.md           # ~90-150%  (translate / convert / return whole file)
+./tokencounter.sh -o classify ticket.txt      # fixed ~5-100 tokens
+./tokencounter.sh -o 0.4 notes.txt            # custom multiple of the input
+```
+
+These ratios are rough heuristics, not measurements, and are applied to the text/document/PDF input
+tokens (which are already on the high side). Extended thinking and tool calls add output tokens on top.
+
 ### Count typed or pasted text (chat-style)
 
 ```bash
