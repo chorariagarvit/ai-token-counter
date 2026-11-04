@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tokencounter"
+version = "0.1.0"
+description = "Count the LLM tokens a file, directory, zip or tarball would use when sent to an AI."
+requires-python = ">=3.10"
+dependencies = ["tiktoken>=0.14", "pillow>=13", "pypdf>=6.21", "mutagen>=1.48"]
+
+[project.optional-dependencies]
+dev = ["pytest>=9"]
+
+[project.scripts]
+tokencounter = "tokencounter.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
